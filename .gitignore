@@ -6,6 +6,16 @@ __pycache__/
 # C extensions
 *.so
 
+# Custom
+.venv/
+__pycache__/
+*.pyc
+data/raw/
+data/processed/
+models/
+outputs/
+.ipynb_checkpoints/
+
 # Distribution / packaging
 .Python
 build/
