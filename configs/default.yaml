@@ -1,0 +1,17 @@
+data_root: "data/raw"
+category: "bottle"
+
+img_size: 128
+batch_size: 16
+epochs: 50
+learning_rate: 0.001
+
+# fraction of the "good" training images held out as a pseudo-validation
+# set, just to monitor reconstruction loss on unseen-but-still-good images
+val_split: 0.1
+
+latent_channels: 128
+num_workers: 2
+
+checkpoint_dir: "models"
+seed: 42
