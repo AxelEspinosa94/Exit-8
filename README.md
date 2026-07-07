@@ -32,6 +32,8 @@ This is an intentionally simple starting point. It is **not** yet
 PatchCore/PaDiM/EfficientAD or anything close to a production-grade method —
 it's the "reality check" version meant to build intuition for the problem.
 
+![Diagrama del autoencoder: compresión y reconstrucción](assets/autoencoder_compress_reconstruct.png)
+
 ## Project structure
 
 ```
@@ -74,22 +76,30 @@ pip install -r requirements.txt
 
 # 2. Download MVTec AD and unzip it into data/raw/
 #    Expected structure per category, e.g. data/raw/bottle/{train,test,ground_truth}
+#    Our case (for the moment) is bottle and metal_nut, so we have to perform a sanity check like
+python -m src.dataset data/raw bottle
+#    Now a quick sanity check of the autoencoder
+python -m src.model
 
 # 3. Train (good images only)
 python -m src.train --config configs/default.yaml
 
 # 4. Evaluate on the test set (good + anomalous images)
-python -m src.evaluate --config configs/default.yaml
+python -m src.evaluate --config configs/default.yaml --checkpoint models/<dataset>_best.pt --threshold_percentile (85-99)
 
 # 5. Run inference on a single image
-python -m src.infer --image path/to/an/image.png --checkpoint models/best.pt
+## Recalibrates threshold eon each run (slower, but autocontained)
+python -m src.infer --image path/a/imagen.png --checkpoint models/bottle_best.pt --threshold_percentile 90
+
+# Or if you already know the numerical value of the threshold you already like
+python -m src.infer --image path/a/imagen.png --checkpoint models/bottle_best.pt --threshold 0.0015
 ```
 
 ## Roadmap
 
 - [x] Simple autoencoder, single category, fully local.
-- [ ] Extend to multiple dataset categories.
-- [ ] Add standard benchmark metrics (image-level ROC-AUC).
+- [x] Extend to multiple dataset categories.
+- [x] Add standard benchmark metrics (image-level ROC-AUC).
 - [ ] Explore a stronger method (PaDiM / PatchCore) for comparison.
 - [ ] Package the model to be served with Triton Inference Server.
 - [ ] Migrate training/deployment to AzureML.
