@@ -1,5 +1,5 @@
 data_root: "data/raw"
-category: "bottle"
+category: "metal_nut"
 
 img_size: 128
 batch_size: 16
@@ -15,3 +15,6 @@ num_workers: 2
 
 checkpoint_dir: "models"
 seed: 42
+
+threshold_percentile: 80.0
+scoring_method: "percentile"
