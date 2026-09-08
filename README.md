@@ -77,23 +77,38 @@ pip install -r requirements.txt
 # 2. Download MVTec AD and unzip it into data/raw/
 #    Expected structure per category, e.g. data/raw/bottle/{train,test,ground_truth}
 #    Our case (for the moment) is bottle and metal_nut, so we have to perform a sanity check like
-python -m src.dataset data/raw bottle
+python -m src.dataset --category <category-name>
 #    Now a quick sanity check of the autoencoder
 python -m src.model
 
 # 3. Train (good images only)
-python -m src.train --config configs/default.yaml
+python -m src.train --category <category-name>
 
 # 4. Evaluate on the test set (good + anomalous images)
-python -m src.evaluate --config configs/default.yaml --checkpoint models/<dataset>_best.pt --threshold_percentile (85-99)
+python -m src.evaluate --category <category-name>
 
 # 5. Run inference on a single image
 ## Recalibrates threshold eon each run (slower, but autocontained)
-python -m src.infer --image path/a/imagen.png --checkpoint models/bottle_best.pt --threshold_percentile 90
+python -m src.infer --image path/a/imagen.png --category <category-name>
 
 # Or if you already know the numerical value of the threshold you already like
-python -m src.infer --image path/a/imagen.png --checkpoint models/bottle_best.pt --threshold 0.0015
+python -m src.infer --image path/a/imagen.png --category <category-name> --threshold 0.0015
+
+# 6. Once the model is validated, we must export it to an inference-ready format for Triton
+## Triton does not run raw PyTorch checkpoints, it needs either ONNX or a TorchScript instead
+## ONNX is a framework-agnostic graph format and TorchScript is a serialized traced version of Torch itself
+
+### Cases of use 
+python -m src.export_model --category <category-name> # default --format onnx
+python -m src.export_model --category <category-name> --format torchscript
+python -m src.export_model --category <category-name> --format both # it will store both data outputs
 ```
+
+## Considerations
+
+So far `bottle` and `metal_nut` datasets were used to train and evaluate, all scripts were updated and now model is a scalable approach. However results were very different because of datasets definitions, in the case of `bottle` dataset we reached an optimal AUC ROC making it able to infer over new images, but for `metal_nut` the results were very poor reaching an AUC ROC of 55% which means this model cannot be used to infer.
+
+Because of this we will use `bottle` as main model until we explore more advance models such as PatchCore.
 
 ## Roadmap
 
