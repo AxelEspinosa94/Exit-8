@@ -12,7 +12,7 @@ Steps:
        chosen threshold. Save a histogram comparing good vs. anomalous scores.
 
 Usage:
-    python -m src.evaluate --config configs/default.yaml --checkpoint models/bottle_best.pt
+    python -m src.evaluate --category bottle
 """
 
 import argparse
@@ -30,16 +30,30 @@ import matplotlib.pyplot as plt
 
 from src.dataset import MVTecADDataset
 from src.model import ConvAutoencoder
-
-
-def load_config(path: str) -> dict:
-    with open(path, "r") as f:
-        return yaml.safe_load(f)
+from utils.helper_funcs import load_config
 
 
 @torch.no_grad()
-def compute_scores(model, loader, device):
-    """Returns (scores, labels) as numpy arrays. score = per-image mean MSE."""
+def compute_scores(model, loader, device, scoring_method="mean", scoring_percentile=99.0):
+    """Returns (scores, labels) as numpy arrays.
+
+    scoring_method controls how the per-pixel squared error is collapsed
+    into a single per-image anomaly score:
+
+    - "mean" (default, unchanged behavior): averages the error over every
+      pixel. Works well when defects are large/prominent (e.g. bottle's
+      broken_large, contamination) but can "dilute" small, localized
+      defects into an unremarkable average.
+    - "percentile": takes a high percentile (e.g. 99th) of the per-pixel
+      error within each image instead of the mean. A single badly
+      reconstructed patch (a thin scratch, a small dent) drives the score
+      up even if the rest of the image reconstructs perfectly -- useful
+      for categories with small/localized defects (e.g. metal_nut's
+      scratch, bent).
+
+    Any category not explicitly configured keeps using "mean", so existing
+    results (e.g. bottle) are unaffected.
+    """
     model.eval()
     all_scores = []
     all_labels = []
@@ -48,8 +62,18 @@ def compute_scores(model, loader, device):
         images = images.to(device)
         reconstructed = model(images)
 
-        # per-image MSE: average over channels/height/width, keep batch dim
-        per_image_error = torch.mean((reconstructed - images) ** 2, dim=(1, 2, 3))
+        # per-pixel MSE, averaged only over channels -> shape (B, H, W)
+        per_pixel_error = torch.mean((reconstructed - images) ** 2, dim=1)
+
+        if scoring_method == "mean":
+            per_image_error = torch.mean(per_pixel_error, dim=(1, 2))
+        elif scoring_method == "percentile":
+            flat_error = per_pixel_error.flatten(start_dim=1)  # (B, H*W)
+            per_image_error = torch.quantile(flat_error, q=scoring_percentile / 100.0, dim=1)
+        else:
+            raise ValueError(
+                f"Unknown scoring_method '{scoring_method}', expected 'mean' or 'percentile'"
+            )
 
         all_scores.append(per_image_error.cpu().numpy())
         all_labels.append(labels.numpy())
@@ -110,18 +134,26 @@ def plot_roc_pr_curves(labels, scores, out_path):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=str, required=True)
-    parser.add_argument("--checkpoint", type=str, required=True)
-    parser.add_argument("--threshold_percentile", type=float, default=99.0,
-                         help="Percentile of the good-image train error used as threshold")
+    parser.add_argument("--category", type=str, required=True)
     args = parser.parse_args()
 
-    cfg = load_config(args.config)
+    category = args.category
+    cfg = load_config(category)
+    checkpoint_dir = f"models/{category}_best.pt"
+    threshold_percentile = cfg.get("threshold_percentile", None)
+
+    # Defaults preserve the original behavior for any category that doesn't
+    # set these explicitly (e.g. bottle.yaml keeps using "mean").
+    scoring_method = cfg.get("scoring_method", "mean")
+    scoring_percentile = cfg.get("scoring_percentile", 99.0)
+    print(f"Scoring method: {scoring_method}"
+          + (f" (p{scoring_percentile:.0f} per-pixel)" if scoring_method == "percentile" else ""))
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
     # --- load model ---
-    checkpoint = torch.load(args.checkpoint, map_location=device)
+    checkpoint = torch.load(checkpoint_dir, map_location=device)
     model = ConvAutoencoder(
         img_size=cfg["img_size"],
         latent_channels=cfg["latent_channels"],
@@ -136,9 +168,9 @@ def main():
         split="train", img_size=cfg["img_size"],
     )
     train_good_loader = DataLoader(train_good_ds, batch_size=cfg["batch_size"], shuffle=False)
-    good_scores, _ = compute_scores(model, train_good_loader, device)
-    threshold = float(np.percentile(good_scores, args.threshold_percentile))
-    print(f"Threshold (p{args.threshold_percentile:.0f} of good-train scores): {threshold:.6f}")
+    good_scores, _ = compute_scores(model, train_good_loader, device, scoring_method, scoring_percentile)
+    threshold = float(np.percentile(good_scores, cfg["threshold_percentile"]))
+    print(f"Threshold (p{cfg['threshold_percentile']:.0f} of good-train scores): {threshold:.6f}")
 
     # --- evaluate on the labeled test set ---
     test_ds = MVTecADDataset(
@@ -146,7 +178,7 @@ def main():
         split="test", img_size=cfg["img_size"],
     )
     test_loader = DataLoader(test_ds, batch_size=cfg["batch_size"], shuffle=False)
-    test_scores, test_labels = compute_scores(model, test_loader, device)
+    test_scores, test_labels = compute_scores(model, test_loader, device, scoring_method, scoring_percentile)
 
     predictions = (test_scores > threshold).astype(int)
 

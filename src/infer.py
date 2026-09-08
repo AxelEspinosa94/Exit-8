@@ -24,11 +24,15 @@ from PIL import Image
 
 from src.dataset import MVTecADDataset, default_transform
 from src.model import ConvAutoencoder
+from utils.helper_funcs import load_config
 
 
-def load_model(checkpoint_path: str, device):
+def load_model(category: str, device):
+    """Loads the checkpoint and returns (model, cfg)."""
+    cfg = load_config(category)
+    threshold_percentile = cfg["threshold_percentile"]
+    checkpoint_path = f"{cfg['checkpoint_dir']}/{category}_best.pt"
     checkpoint = torch.load(checkpoint_path, map_location=device)
-    cfg = checkpoint["config"]
 
     model = ConvAutoencoder(
         img_size=cfg["img_size"],
@@ -37,7 +41,7 @@ def load_model(checkpoint_path: str, device):
     model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
 
-    return model, cfg
+    return model, threshold_percentile, cfg
 
 
 @torch.no_grad()
@@ -77,21 +81,19 @@ def calibrate_threshold(model, cfg: dict, device, percentile: float) -> float:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--image", type=str, required=True, help="Path to a single image")
-    parser.add_argument("--checkpoint", type=str, required=True)
+    parser.add_argument("--category", type=str, required=True)
     parser.add_argument("--threshold", type=float, default=None,
                          help="Use a fixed threshold instead of recalibrating it")
-    parser.add_argument("--threshold_percentile", type=float, default=99.0,
-                         help="Only used if --threshold is not provided")
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    model, cfg = load_model(args.checkpoint, device)
+    model, threshold_percentile, cfg = load_model(args.category, device)
 
     if args.threshold is not None:
         threshold = args.threshold
     else:
-        threshold = calibrate_threshold(model, cfg, device, args.threshold_percentile)
+        threshold = calibrate_threshold(model, cfg, device, threshold_percentile)
 
     score = score_image(model, args.image, cfg["img_size"], device)
     verdict = "ANOMALOUS" if score > threshold else "GOOD"

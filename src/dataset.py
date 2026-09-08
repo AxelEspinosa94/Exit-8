@@ -14,6 +14,7 @@ This module does NOT extract .tar files. Extraction is a one-time setup
 step (see README) and is intentionally kept out of the training/eval loop.
 """
 
+import argparse
 import os
 import glob
 
@@ -85,8 +86,12 @@ if __name__ == "__main__":
     # Quick sanity check: python -m src.dataset
     import sys
 
-    root = sys.argv[1] if len(sys.argv) > 1 else "data/raw"
-    category = sys.argv[2] if len(sys.argv) > 2 else "bottle"
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--category", type=str, required=True)
+    args = parser.parse_args()
+
+    category = args.category
+    root = f"data\\raw"    
 
     train_ds = MVTecADDataset(root, category, split="train")
     test_ds = MVTecADDataset(root, category, split="test")

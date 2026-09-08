@@ -14,11 +14,7 @@ from torch.utils.data import DataLoader, random_split
 
 from src.dataset import MVTecADDataset
 from src.model import ConvAutoencoder
-
-
-def load_config(path: str) -> dict:
-    with open(path, "r") as f:
-        return yaml.safe_load(f)
+from utils.helper_funcs import load_config
 
 
 def build_dataloaders(cfg: dict):
@@ -78,10 +74,12 @@ def run_epoch(model, loader, criterion, device, optimizer=None):
 def main():
     ## Step 0. Configuration and device setup
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=str, required=True)
+    parser.add_argument("--category", type=str, required=True)
     args = parser.parse_args()
 
-    cfg = load_config(args.config)
+    category = args.category
+    cfg = load_config(category)
+    print(f"Loaded config for category '{category}': {cfg}")
     torch.manual_seed(cfg["seed"])
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -104,7 +102,7 @@ def main():
     os.makedirs(cfg["checkpoint_dir"], exist_ok=True)
     best_val_loss = float("inf")
     best_ckpt_path = os.path.join(
-        cfg["checkpoint_dir"], f"{cfg['category']}_best.pt"
+        cfg["checkpoint_dir"], f"{category}_best.pt"
     )
 
     ## Step 3. Training loop. Each epoch, the model compresses and reconstructs
@@ -132,3 +130,6 @@ def main():
             print(f"  -> new best checkpoint saved to {best_ckpt_path}")
 
     print(f"Training done. Best val_loss: {best_val_loss:.6f} ({best_ckpt_path})")
+
+if __name__ == "__main__":
+    main()
