@@ -99,9 +99,9 @@ python -m src.infer --image path/a/imagen.png --category <category-name> --thres
 ## ONNX is a framework-agnostic graph format and TorchScript is a serialized traced version of Torch itself
 
 ### Cases of use 
-python -m src.export_model --category <category-name> # default --format onnx
-python -m src.export_model --category <category-name> --format torchscript
-python -m src.export_model --category <category-name> --format both # it will store both data outputs
+python -m src.export_model --category <category-name> --version <n> # default --format onnx
+python -m src.export_model --category <category-name> --version <n> --format torchscript
+python -m src.export_model --category <category-name> --version <n> --format both # it will store both data outputs
 ```
 
 ## Considerations
@@ -119,6 +119,17 @@ Because of this we will use `bottle` as main model until we explore more advance
 - [ ] Package the model to be served with Triton Inference Server.
 - [ ] Migrate training/deployment to AzureML.
 - [ ] Automate the pipeline with GitHub Actions (training job + deployment).
+
+## Appendix
+
+### Rules to configure config.pbtxt
+
+|.pbtxt field |	where does it come from|
+|-------------|------------------------|
+|name |	Name of the model folder |
+|input[].name / output[].name |	Identical to input_names/output_names from torch.onnx.export |
+|input[].dims / output[].dims |	Tensor shape without the batch dimension |
+|max_batch_size |	Must be $> 0$ only if model was exported with dynamic_axes in dim 0 |
 
 ## Dataset and license
 

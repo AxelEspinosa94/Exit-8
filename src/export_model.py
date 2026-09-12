@@ -15,6 +15,14 @@ PyTorch model and the exported one, and compare outputs -- if they don't
 match closely, the export is not trustworthy, no matter how "successful"
 the export step itself looked.
 
+This script also writes the Triton config.pbtxt for the ONNX export,
+generated from the SAME variables used to export (category, img_size,
+input/output names). That's a deliberate choice: a hand-written
+config.pbtxt living in a different file than the export code is exactly
+how the model filename and the config's expected filename end up
+disagreeing with each other -- Triton only tells you when it refuses to
+load the model, not before.
+
 Usage:
     python -m src.export_model --category bottle
     python -m src.export_model --category bottle --format torchscript
@@ -29,6 +37,11 @@ import torch
 
 from src.model import ConvAutoencoder
 from utils.helper_funcs import load_config
+
+# Must match what Triton's onnxruntime_onnx backend looks for by default.
+# Renaming this would require a matching `default_model_filename` entry
+# in config.pbtxt -- simpler to just keep the expected name.
+ONNX_FILENAME = "model.onnx"
 
 
 def load_trained_model(category: str, device):
@@ -97,15 +110,51 @@ def validate_torchscript(model, traced_model, dummy_input, atol: float = 1e-4):
     return matches
 
 
+def generate_triton_config(category: str, img_size: int, out_dir: str, max_batch_size: int = 8):
+    """Writes config.pbtxt using the exact same names/shapes used at export
+    time, so the config can never drift out of sync with the actual model.
+    """
+    config_text = f'''name: "{category}_autoencoder"
+platform: "onnxruntime_onnx"
+max_batch_size: {max_batch_size}
+
+input [
+  {{
+    name: "input"
+    data_type: TYPE_FP32
+    dims: [3, {img_size}, {img_size}]
+  }}
+]
+
+output [
+  {{
+    name: "reconstruction"
+    data_type: TYPE_FP32
+    dims: [3, {img_size}, {img_size}]
+  }}
+]
+'''
+    config_path = os.path.join(out_dir, "config.pbtxt")
+    with open(config_path, "w") as f:
+        f.write(config_text)
+
+    return config_path
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--category", type=str, required=True)
     parser.add_argument("--format", type=str, default="onnx",
                          choices=["onnx", "torchscript", "both"])
+    parser.add_argument("--version", type=int, default=1, help="Triton model version (default: 1)")
+    parser.add_argument("--max_batch_size", type=int, default=8,
+                         help="Only used for the generated Triton config.pbtxt")
     args = parser.parse_args()
 
+    category = args.category
+    version = args.version
     device = torch.device("cpu")  # export/validate on CPU for portability
-    model, cfg = load_trained_model(args.category, device)
+    model, cfg = load_trained_model(category, device)
 
     # A single dummy image is enough to trace the graph / run the comparison --
     # we're checking that the exported computation is faithful, not benchmarking data.
@@ -113,14 +162,23 @@ def main():
 
     os.makedirs("models", exist_ok=True)
 
+    model_dir = f"model_repository/{category}_autoencoder"
+    version_dir = os.path.join(model_dir, str(version))
+    os.makedirs(version_dir, exist_ok=True)
+
     if args.format in ("onnx", "both"):
-        onnx_path = f"models/{args.category}.onnx"
+        onnx_path = os.path.join(version_dir, ONNX_FILENAME)
         export_onnx(model, dummy_input, onnx_path)
         print(f"Saved ONNX model to {onnx_path}")
         validate_onnx(model, dummy_input, onnx_path)
 
+        config_path = generate_triton_config(
+            category, cfg["img_size"], model_dir, args.max_batch_size
+        )
+        print(f"Wrote Triton config to {config_path}")
+
     if args.format in ("torchscript", "both"):
-        ts_path = f"models/{args.category}_torchscript.pt"
+        ts_path = f"models/{category}_torchscript.pt"
         traced = export_torchscript(model, dummy_input, ts_path)
         print(f"Saved TorchScript model to {ts_path}")
         validate_torchscript(model, traced, dummy_input)
